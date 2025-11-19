@@ -169,261 +169,324 @@
   <section id="sheet">
     <div id="sheet-handle"></div>
     <h2>Importe um CSV da Caixa</h2>
-    <p>No site da Caixa, baixe o CSV e selecione o arquivo aqui em cima.</p>
-    <p style="margin-top:6px;">Clique em um pin para ver detalhes e rodar a análise de viabilidade com IA.</p>
+    <p>No site da Caixa, baixe o CSV do estado desejado e selecione o arquivo aqui em cima.</p>
+    <p style="margin-top:6px;">Depois clique em um pin para ver detalhes e rodar a análise de viabilidade com IA.</p>
   </section>
 
-<!-- FIM DA PARTE 1 -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- Leaflet + PapaParse -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
-<script>
-  const BACKEND_URL = 'https://arrematecerto.onrender.com';
+  <script>
+    const BACKEND_URL = "https://arrematecerto.onrender.com";
 
-  const fileInput = document.getElementById('fileInput');
-  const statusEl  = document.getElementById('status');
-  const sheetEl   = document.getElementById('sheet');
+    const fileInput = document.getElementById("fileInput");
+    const statusEl  = document.getElementById("status");
+    const sheetEl   = document.getElementById("sheet");
 
-  const map = L.map('map').setView([-22.5, -48], 6);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19
-  }).addTo(map);
+    const map = L.map("map").setView([-22.5, -48], 6); // centro SP
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19
+    }).addTo(map);
 
-  let markersLayer = L.layerGroup().addTo(map);
-  let imoveis = [];
-  let imovelSelecionado = null;
+    let markersLayer = L.layerGroup().addTo(map);
+    let imoveis = [];
+    let imovelSelecionado = null;
 
-  function hashCode(str) {
-    str = String(str || '');
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = (hash << 5) - hash + str.charCodeAt(i);
-      hash |= 0;
-    }
-    return Math.abs(hash);
-  }
-
-  const SP_BOX = { latMin: -25.5, latMax: -20.0, lngMin: -53.0, lngMax: -44.0 };
-  const BR_BOX = { latMin: -33.0, latMax: 5.0, lngMin: -74.0, lngMax: -35.0 };
-
-  function randomCoords(uf, cidade, bairro) {
-    const box = uf === 'SP' ? SP_BOX : BR_BOX;
-    const h = hashCode(`${cidade}|${bairro}|${uf}`);
-    const latFrac = (h % 1000) / 1000;
-    const lngFrac = ((Math.floor(h / 1000)) % 1000) / 1000;
-    const lat = box.latMin + latFrac * (box.latMax - box.latMin);
-    const lng = box.lngMin + lngFrac * (box.lngMax - box.lngMin);
-    return [lat, lng];
-  }
-
-  function parseNumeroBr(valorStr) {
-    if (!valorStr) return 0;
-    let s = String(valorStr).trim();
-    s = s.replace(/[R$\s]/g, '');
-    s = s.replace(/\./g, '').replace(',', '.');
-    const n = Number(s);
-    return Number.isNaN(n) ? 0 : n;
-  }
-
-  function normalizarImovel(row, idx) {
-    const uf        = (row['UF'] || '').trim();
-    const cidade    = (row['Cidade'] || '').trim();
-    const bairro    = (row['Bairro'] || '').trim();
-    const endereco  = (row['Endereço'] || '').trim();
-    const modalidade= (row['Modalidade de venda'] || '').trim();
-    const tipo      = (row['Descrição'] || '').split(',')[0] || 'Imóvel';
-
-    const valor     = parseNumeroBr(row['Preço']);
-    const valorAval = parseNumeroBr(row['Valor de avaliação']);
-    const desconto  = (row['Desconto'] || '').trim();
-    const link      = (row['Link de acesso'] || '').trim();
-
-    const [lat, lng] = randomCoords(uf, cidade, bairro);
-
-    return {
-      id: idx,
-      bruto: row,
-      uf,
-      cidade,
-      bairro,
-      logradouro: endereco,
-      modalidade,
-      tipo,
-      valor,
-      valor_avaliacao: valorAval,
-      desconto,
-      link,
-      area: 0,
-      lat,
-      lng
-    };
-  }
-
-<!-- FIM DA PARTE 2 -->
-  async function geocodeEndereco(i) {
-    const enderecoFmt = `${i.logradouro}, ${i.bairro}, ${i.cidade}, ${i.uf}, Brasil`;
-
-    if (!window._geoCache) window._geoCache = {};
-    if (window._geoCache[enderecoFmt]) return window._geoCache[enderecoFmt];
-
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(enderecoFmt)}&email=arrematecerto@app`;
-
-    try {
-      const resp = await fetch(url, {
-        headers: {
-          "User-Agent": "Arremate Certo - Pesquisa de Imóveis"
-        }
-      });
-      const data = await resp.json();
-
-      if (data.length > 0) {
-        const lat = parseFloat(data[0].lat);
-        const lon = parseFloat(data[0].lon);
-        window._geoCache[enderecoFmt] = [lat, lon];
-        return [lat, lon];
+    function hashCode(str) {
+      str = String(str || "");
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = (hash << 5) - hash + str.charCodeAt(i);
+        hash |= 0;
       }
-    } catch (e) {
-      console.error("Erro geocode:", e);
+      return Math.abs(hash);
     }
 
-    return [i.lat, i.lng];
-  }
+    const UF_BOXES = {
+      "SP": { latMin: -25.5, latMax: -20.0, lngMin: -53.0, lngMax: -44.0 }
+    };
+    const BR_BOX = { latMin: -33.0, latMax: 5.0, lngMin: -74.0, lngMax: -35.0 };
 
-  function preencherSheetInicial() {
-    sheetEl.innerHTML = `
-      <div id="sheet-handle"></div>
-      <h2>Importe um CSV da Caixa</h2>
-      <p>Depois clique em um pin para ver detalhes e usar IA.</p>
-    `;
-  }
+    function randomCoords(uf, cidade, bairro) {
+      const box = UF_BOXES[(uf || "").toUpperCase()] || BR_BOX;
+      const h = hashCode(`${cidade}|${bairro}|${uf}`);
+      const latFrac = (h % 1000) / 1000;
+      const lngFrac = ((Math.floor(h / 1000)) % 1000) / 1000;
+      const lat = box.latMin + latFrac * (box.latMax - box.latMin);
+      const lng = box.lngMin + lngFrac * (box.lngMax - box.lngMin);
+      return [lat, lng];
+    }
 
-  function preencherSheetImovel(i) {
-    imovelSelecionado = i;
+    function parseNumeroBr(valorStr) {
+      if (!valorStr) return 0;
+      let s = String(valorStr).trim();
+      s = s.replace(/[R$\s]/g, "");
+      s = s.replace(/\./g, "").replace(",", ".");
+      const n = Number(s);
+      return Number.isNaN(n) ? 0 : n;
+    }
 
-    sheetEl.innerHTML = `
-      <div id="sheet-handle"></div>
-      <h2>${i.tipo}</h2>
-      <div class="tag-row">
-        <span class="tag green">${i.modalidade}</span>
-      </div>
+    function normalizarImovel(row, idx) {
+      const uf         = (row["UF"] || "").trim();
+      const cidade     = (row["Cidade"] || "").trim();
+      const bairro     = (row["Bairro"] || "").trim();
+      const endereco   = (row["Endereço"] || "").trim();
+      const modalidade = (row["Modalidade de venda"] || "").trim();
+      const tipo       = ((row["Descrição"] || "").split(",")[0] || "Imóvel").trim();
 
-      <p><strong>Local:</strong> ${i.logradouro}, ${i.bairro} – ${i.cidade}/${i.uf}</p>
-      <p><strong>Valor:</strong> R$ ${i.valor.toLocaleString('pt-BR')}</p>
-      <p><strong>Avaliação:</strong> R$ ${i.valor_avaliacao.toLocaleString('pt-BR')}</p>
-      <p><strong>Desconto:</strong> ${i.desconto}</p>
+      const valor      = parseNumeroBr(row["Preço"]);
+      const valorAval  = parseNumeroBr(row["Valor de avaliação"]);
+      const desconto   = (row["Desconto"] || "").trim();
+      const link       = (row["Link de acesso"] || "").trim();
 
-      ${
-        i.link
-          ? `<p><a href="${i.link}" target="_blank" style="font-size:12px;">Ver anúncio</a></p>`
-          : ''
+      const [lat, lng] = randomCoords(uf, cidade, bairro);
+
+      return {
+        id: idx,
+        bruto: row,
+        uf,
+        cidade,
+        bairro,
+        logradouro: endereco,
+        modalidade,
+        tipo,
+        valor,
+        valor_avaliacao: valorAval,
+        desconto,
+        link,
+        area: 0,
+        lat,
+        lng
+      };
+    }
+
+    function preencherSheetInicial() {
+      sheetEl.innerHTML = `
+        <div id="sheet-handle"></div>
+        <h2>Importe um CSV da Caixa</h2>
+        <p>Depois clique em um pin para ver detalhes e usar IA.</p>
+      `;
+    }
+
+    async function geocodeEndereco(imovel) {
+      const enderecoFmt = `${imovel.logradouro}, ${imovel.bairro}, ${imovel.cidade}, ${imovel.uf}, Brasil`;
+
+      if (!window._geoCache) window._geoCache = {};
+      if (window._geoCache[enderecoFmt]) {
+        return window._geoCache[enderecoFmt];
       }
 
-      <button id="btnGeo" style="
-        margin-top:6px;
-        padding:6px 10px;
-        border-radius:999px;
-        background:#6366f1;
-        color:white;
-        border:none;
-        cursor:pointer;
-        font-size:12px;
-      ">Posicionar no mapa</button>
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(enderecoFmt)}&email=arrematecerto@app`;
 
-      <button id="btnIA" style="
-        margin-top:6px;
-        padding:6px 10px;
-        border-radius:999px;
-        background:#14b8a6;
-        color:black;
-        border:none;
-        cursor:pointer;
-        font-size:12px;
-      ">Analisar com IA</button>
-
-      <div id="respIA" style="margin-top:6px; font-size:12px;"></div>
-    `;
-
-    document.getElementById("btnGeo").onclick = async () => {
-      const [lat, lon] = await geocodeEndereco(i);
-      i.lat = lat;
-      i.lng = lon;
-      map.setView([lat, lon], 16);
-    };
-
-    document.getElementById("btnIA").onclick = async () => {
-      const respDiv = document.getElementById("respIA");
-      respDiv.innerText = "Analisando...";
       try {
-        const resp = await fetch(`${BACKEND_URL}/api/imoveis/analise`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(i)
+        const resp = await fetch(url, {
+          headers: {
+            "User-Agent": "ArremateCerto/1.0 (pesquisa de imoveis)"
+          }
         });
         const data = await resp.json();
-
-        respDiv.innerHTML = `
-          <p><strong>Score:</strong> ${data.score}</p>
-          <p><strong>Resumo:</strong> ${data.resumo}</p>
-        `;
-      } catch {
-        respDiv.innerText = "Erro IA";
+        if (Array.isArray(data) && data.length > 0) {
+          const lat = parseFloat(data[0].lat);
+          const lon = parseFloat(data[0].lon);
+          if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
+            window._geoCache[enderecoFmt] = [lat, lon];
+            return [lat, lon];
+          }
+        }
+      } catch (e) {
+        console.error("Erro ao geocodificar:", e);
       }
-    };
-  }
-
-  function plotarImoveis() {
-    markersLayer.clearLayers();
-    const bounds = [];
-
-    imoveis.forEach(i => {
-      const marker = L.marker([i.lat, i.lng]).addTo(markersLayer);
-      bounds.push([i.lat, i.lng]);
-
-      marker.on("click", () => preencherSheetImovel(i));
-    });
-
-    if (bounds.length > 1) {
-      map.fitBounds(bounds, { padding: [40,80] });
+      return [imovel.lat, imovel.lng]; // fallback
     }
-  }
 
-  fileInput.addEventListener("change", () => {
-    const file = fileInput.files[0];
-    if (!file) return;
+    function preencherSheetImovel(i) {
+      imovelSelecionado = i;
 
-    statusEl.textContent = "Lendo CSV...";
+      const valorTexto =
+        i.valor && i.valor > 0
+          ? "R$ " + i.valor.toLocaleString("pt-BR")
+          : "Não informado";
 
-    Papa.parse(file, {
-      header: false,
-      skipEmptyLines: true,
-      delimiter: ";",
-      complete: function(results) {
-        const rows = results.data;
-        const headerIndex = rows.findIndex(
-          r => (r[0] || "").trim().startsWith("N° do imóvel")
-        );
+      const avalTexto =
+        i.valor_avaliacao && i.valor_avaliacao > 0
+          ? "R$ " + i.valor_avaliacao.toLocaleString("pt-BR")
+          : "Não informado";
 
-        const header = rows[headerIndex];
-        const data = rows.slice(headerIndex + 1);
+      sheetEl.innerHTML = `
+        <div id="sheet-handle"></div>
+        <h2>${i.tipo}</h2>
+        <div class="tag-row">
+          <span class="tag green">${i.modalidade || "Modalidade não informada"}</span>
+        </div>
 
-        const lista = data.map((row, idx) => {
-          const obj = {};
-          header.forEach((h, colIdx) => {
-            obj[h] = (row[colIdx] || "").trim();
+        <p><strong>Local:</strong> ${i.logradouro || ""}${i.logradouro ? ", " : ""}${i.bairro || ""} – ${i.cidade || ""}/${i.uf || ""}</p>
+        <p><strong>Valor:</strong> ${valorTexto}</p>
+        <p><strong>Avaliação:</strong> ${avalTexto}</p>
+        <p><strong>Desconto informado:</strong> ${i.desconto || "Não informado"}</p>
+        ${
+          i.link
+            ? `<p><a href="${i.link}" target="_blank" rel="noopener" style="font-size:12px;">Ver anúncio no site da Caixa</a></p>`
+            : ""
+        }
+
+        <button id="btnGeo" style="
+          margin-top:6px;
+          padding:6px 10px;
+          border-radius:999px;
+          background:#6366f1;
+          color:#fff;
+          border:none;
+          cursor:pointer;
+          font-size:12px;
+        ">Posicionar no mapa</button>
+
+        <button id="btnIA" style="
+          margin-top:6px;
+          margin-left:4px;
+          padding:6px 10px;
+          border-radius:999px;
+          background:#14b8a6;
+          color:#022c22;
+          border:none;
+          cursor:pointer;
+          font-size:12px;
+        ">Analisar com IA</button>
+
+        <div id="respIA" style="margin-top:6px; font-size:12px;"></div>
+      `;
+
+      const btnGeo = document.getElementById("btnGeo");
+      const btnIA  = document.getElementById("btnIA");
+      const respIA = document.getElementById("respIA");
+
+      btnGeo.onclick = async () => {
+        btnGeo.disabled = true;
+        btnGeo.textContent = "Localizando...";
+        const [lat, lon] = await geocodeEndereco(i);
+        i.lat = lat;
+        i.lng = lon;
+        map.setView([lat, lon], 16);
+        btnGeo.textContent = "Posicionado";
+      };
+
+      btnIA.onclick = async () => {
+        respIA.textContent = "Analisando viabilidade...";
+        try {
+          const resp = await fetch(`${BACKEND_URL}/api/imoveis/analise`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(i)
           });
-          return normalizarImovel(obj, idx);
-        });
+          if (!resp.ok) {
+            respIA.textContent = `Erro na análise (HTTP ${resp.status})`;
+            return;
+          }
+          const data = await resp.json();
+          respIA.innerHTML = `
+            <p><strong>Score:</strong> ${data.score ?? "?"}/100</p>
+            <p><strong>Resumo:</strong> ${data.resumo || ""}</p>
+          `;
+        } catch (e) {
+          console.error(e);
+          respIA.textContent = "Erro ao chamar IA.";
+        }
+      };
+    }
 
-        imoveis = lista.slice(0, 400);
-        statusEl.textContent = `CSV carregado (${lista.length} imóveis). Mostrando 400.`;
-        plotarImoveis();
+    function plotarImoveisNoMapa() {
+      markersLayer.clearLayers();
+
+      if (!imoveis.length) {
         preencherSheetInicial();
+        statusEl.textContent = "Nenhum imóvel carregado.";
+        return;
       }
+
+      const bounds = [];
+
+      imoveis.forEach(i => {
+        const marker = L.marker([i.lat, i.lng]).addTo(markersLayer);
+        bounds.push([i.lat, i.lng]);
+
+        marker.on("click", () => {
+          preencherSheetImovel(i);
+        });
+      });
+
+      if (bounds.length > 1) {
+        map.fitBounds(bounds, { padding: [40, 80] });
+      } else {
+        map.setView(bounds[0] || [-22.5, -48], 7);
+      }
+
+      preencherSheetInicial();
+    }
+
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      statusEl.textContent = "Lendo CSV...";
+
+      Papa.parse(file, {
+        header: false,
+        skipEmptyLines: true,
+        delimiter: ";",
+        complete: function(results) {
+          try {
+            const rows = results.data;
+
+            const headerIndex = rows.findIndex(
+              r => (r[0] || "").trim().startsWith("N° do imóvel")
+            );
+
+            if (headerIndex === -1) {
+              console.error("Cabeçalho não encontrado", rows.slice(0,5));
+              statusEl.textContent = "Erro: cabeçalho do CSV não encontrado.";
+              preencherSheetInicial();
+              return;
+            }
+
+            const headerRow = rows[headerIndex].map(h => (h || "").trim());
+            const dataRows = rows
+              .slice(headerIndex + 1)
+              .filter(r => (r[0] || "").trim() !== "");
+
+            let lista = dataRows.map((r, idx) => {
+              const obj = {};
+              headerRow.forEach((h, colIdx) => {
+                obj[h] = (r[colIdx] || "").trim();
+              });
+              return normalizarImovel(obj, idx);
+            });
+
+            const total = lista.length;
+            const LIMITE = 400;
+            if (lista.length > LIMITE) {
+              lista = lista.slice(0, LIMITE);
+              statusEl.textContent = `CSV carregado (${total} imóveis). Mostrando primeiros ${LIMITE} no mapa.`;
+            } else {
+              statusEl.textContent = `CSV carregado (${total} imóveis).`;
+            }
+
+            imoveis = lista;
+            plotarImoveisNoMapa();
+          } catch (e) {
+            console.error("Erro no processamento do CSV:", e);
+            statusEl.textContent = "Erro ao processar o CSV (veja o console do navegador).";
+            preencherSheetInicial();
+          }
+        },
+        error: function(err) {
+          console.error("Erro PapaParse:", err);
+          statusEl.textContent = "Erro ao ler o arquivo CSV.";
+          preencherSheetInicial();
+        }
+      });
     });
-  });
 
-  preencherSheetInicial();
-</script>
-
+    preencherSheetInicial();
+  </script>
 </body>
 </html>
