@@ -184,7 +184,8 @@
     const statusEl  = document.getElementById("status");
     const sheetEl   = document.getElementById("sheet");
 
-    const map = L.map("map").setView([-22.5, -48], 6); // centro SP
+    // Mapa: centro em SP
+    const map = L.map("map").setView([-22.5, -48], 6);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19
     }).addTo(map);
@@ -192,31 +193,6 @@
     let markersLayer = L.layerGroup().addTo(map);
     let imoveis = [];
     let imovelSelecionado = null;
-
-    function hashCode(str) {
-      str = String(str || "");
-      let hash = 0;
-      for (let i = 0; i < str.length; i++) {
-        hash = (hash << 5) - hash + str.charCodeAt(i);
-        hash |= 0;
-      }
-      return Math.abs(hash);
-    }
-
-    const UF_BOXES = {
-      "SP": { latMin: -25.5, latMax: -20.0, lngMin: -53.0, lngMax: -44.0 }
-    };
-    const BR_BOX = { latMin: -33.0, latMax: 5.0, lngMin: -74.0, lngMax: -35.0 };
-
-    function randomCoords(uf, cidade, bairro) {
-      const box = UF_BOXES[(uf || "").toUpperCase()] || BR_BOX;
-      const h = hashCode(`${cidade}|${bairro}|${uf}`);
-      const latFrac = (h % 1000) / 1000;
-      const lngFrac = ((Math.floor(h / 1000)) % 1000) / 1000;
-      const lat = box.latMin + latFrac * (box.latMax - box.latMin);
-      const lng = box.lngMin + lngFrac * (box.lngMax - box.lngMin);
-      return [lat, lng];
-    }
 
     function parseNumeroBr(valorStr) {
       if (!valorStr) return 0;
@@ -240,8 +216,7 @@
       const desconto   = (row["Desconto"] || "").trim();
       const link       = (row["Link de acesso"] || "").trim();
 
-      const [lat, lng] = randomCoords(uf, cidade, bairro);
-
+      // Sem lat/lng aqui – serão preenchidos após geocode
       return {
         id: idx,
         bruto: row,
@@ -256,8 +231,8 @@
         desconto,
         link,
         area: 0,
-        lat,
-        lng
+        lat: null,
+        lng: null
       };
     }
 
@@ -297,7 +272,7 @@
       } catch (e) {
         console.error("Erro ao geocodificar:", e);
       }
-      return [imovel.lat, imovel.lng]; // fallback
+      return [null, null];
     }
 
     function preencherSheetImovel(i) {
@@ -330,20 +305,8 @@
             : ""
         }
 
-        <button id="btnGeo" style="
-          margin-top:6px;
-          padding:6px 10px;
-          border-radius:999px;
-          background:#6366f1;
-          color:#fff;
-          border:none;
-          cursor:pointer;
-          font-size:12px;
-        ">Posicionar no mapa</button>
-
         <button id="btnIA" style="
           margin-top:6px;
-          margin-left:4px;
           padding:6px 10px;
           border-radius:999px;
           background:#14b8a6;
@@ -356,19 +319,8 @@
         <div id="respIA" style="margin-top:6px; font-size:12px;"></div>
       `;
 
-      const btnGeo = document.getElementById("btnGeo");
       const btnIA  = document.getElementById("btnIA");
       const respIA = document.getElementById("respIA");
-
-      btnGeo.onclick = async () => {
-        btnGeo.disabled = true;
-        btnGeo.textContent = "Localizando...";
-        const [lat, lon] = await geocodeEndereco(i);
-        i.lat = lat;
-        i.lng = lon;
-        map.setView([lat, lon], 16);
-        btnGeo.textContent = "Posicionado";
-      };
 
       btnIA.onclick = async () => {
         respIA.textContent = "Analisando viabilidade...";
@@ -394,30 +346,42 @@
       };
     }
 
-    function plotarImoveisNoMapa() {
+    async function geocodificarEPlotar(lista) {
       markersLayer.clearLayers();
+      const bounds = [];
 
-      if (!imoveis.length) {
+      const total = lista.length;
+      const LIMITE_GEO = 120; // geocodifica só os primeiros 120 para não abusar da API
+      const limite = Math.min(total, LIMITE_GEO);
+
+      if (!limite) {
+        statusEl.textContent = "Nenhum imóvel para geocodificar.";
         preencherSheetInicial();
-        statusEl.textContent = "Nenhum imóvel carregado.";
         return;
       }
 
-      const bounds = [];
+      for (let idx = 0; idx < limite; idx++) {
+        const imovel = lista[idx];
+        statusEl.textContent = `Geocodificando imóveis (${idx + 1}/${limite})...`;
 
-      imoveis.forEach(i => {
-        const marker = L.marker([i.lat, i.lng]).addTo(markersLayer);
-        bounds.push([i.lat, i.lng]);
+        const [lat, lon] = await geocodeEndereco(imovel);
+        if (lat != null && lon != null) {
+          imovel.lat = lat;
+          imovel.lng = lon;
 
-        marker.on("click", () => {
-          preencherSheetImovel(i);
-        });
-      });
+          const marker = L.marker([lat, lon]).addTo(markersLayer);
+          bounds.push([lat, lon]);
 
-      if (bounds.length > 1) {
+          marker.on("click", () => preencherSheetImovel(imovel));
+        }
+      }
+
+      if (bounds.length) {
         map.fitBounds(bounds, { padding: [40, 80] });
+        statusEl.textContent = `Mapa carregado com ${bounds.length} imóveis geolocalizados (de ${total}).`;
       } else {
-        map.setView(bounds[0] || [-22.5, -48], 7);
+        map.setView([-22.5, -48], 6);
+        statusEl.textContent = "Não foi possível geolocalizar os imóveis (endereços muito genéricos?).";
       }
 
       preencherSheetInicial();
@@ -437,7 +401,7 @@
           try {
             const rows = results.data;
 
-            // >>> AJUSTE AQUI: acha o header pela combinação UF + Cidade na 2ª e 3ª colunas
+            // Acha o cabeçalho pela combinação UF + Cidade nas colunas 2 e 3
             const headerIndex = rows.findIndex(r => {
               const c1 = (r[1] || "").trim().toUpperCase();
               const c2 = (r[2] || "").trim().toUpperCase();
@@ -465,16 +429,10 @@
             });
 
             const total = lista.length;
-            const LIMITE = 400;
-            if (lista.length > LIMITE) {
-              lista = lista.slice(0, LIMITE);
-              statusEl.textContent = `CSV carregado (${total} imóveis). Mostrando primeiros ${LIMITE} no mapa.`;
-            } else {
-              statusEl.textContent = `CSV carregado (${total} imóveis).`;
-            }
+            statusEl.textContent = `CSV lido (${total} imóveis). Iniciando geocodificação...`;
 
             imoveis = lista;
-            plotarImoveisNoMapa();
+            geocodificarEPlotar(lista);
           } catch (e) {
             console.error("Erro no processamento do CSV:", e);
             statusEl.textContent = "Erro ao processar o CSV (veja o console do navegador).";
