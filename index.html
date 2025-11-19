@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
   <meta charset="utf-8" />
-  <title>Arremate Certo – v0.3</title>
+  <title>Arremate Certo</title>
 
   <!-- Leaflet CSS -->
   <link
@@ -12,92 +12,217 @@
   />
 
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     html, body {
       margin: 0;
       padding: 0;
       height: 100%;
-    }
-    #map {
-      height: 100vh;   /* mapa ocupa TUDO */
-      width: 100vw;
-    }
-    /* Painel flutuante (UF + botão) */
-    #controls {
-      position: absolute;
-      top: 12px;
-      left: 12px;
-      right: 12px;
-      max-width: 420px;
-      margin: 0 auto;
-      padding: 10px 12px;
-      background: rgba(255,255,255,0.95);
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 14px;
+      background: #020617;
+      color: #0f172a;
     }
-    #controls h2 {
-      margin: 0 0 4px;
-      font-size: 16px;
+
+    /* MAPA ocupa todo o fundo */
+    #map {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
     }
-    #controls p {
-      margin: 0 0 8px;
+
+    /* Top bar estilo app */
+    #topbar {
+      position: fixed;
+      z-index: 10;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: linear-gradient(90deg, #020617, #0f172a);
+      color: #e5e7eb;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+    }
+
+    #title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #title-row h1 {
+      font-size: 18px;
+      margin: 0;
+    }
+
+    #title-row span {
+      font-size: 11px;
+      opacity: 0.8;
+    }
+
+    #filters-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    #filters-row label {
       font-size: 12px;
+      opacity: 0.9;
     }
-    #controls select, #controls button {
-      padding: 6px 8px;
+
+    #filters-row select,
+    #filters-row button {
+      padding: 6px 10px;
       font-size: 13px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.9);
+      color: #e5e7eb;
     }
-    #controls button {
-      background: #2563eb;
-      border-color: #2563eb;
-      color: #fff;
-      margin-left: 6px;
+
+    #filters-row button {
+      background: #22c55e;
+      border-color: #16a34a;
+      color: #022c22;
+      font-weight: 600;
       cursor: pointer;
     }
-    #controls button:active {
-      transform: scale(0.98);
+
+    #filters-row button:active {
+      transform: scale(0.97);
     }
+
     #status {
-      margin-top: 6px;
       font-size: 11px;
+      opacity: 0.85;
+    }
+
+    /* Bottom sheet com info do imóvel */
+    #sheet {
+      position: fixed;
+      z-index: 10;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 10px 14px 14px;
+      background: rgba(248,250,252,0.97);
+      backdrop-filter: blur(8px);
+      border-radius: 14px 14px 0 0;
+      box-shadow: 0 -4px 18px rgba(15,23,42,0.4);
+    }
+
+    #sheet-handle {
+      width: 40px;
+      height: 4px;
+      border-radius: 999px;
+      background: #cbd5f5;
+      margin: 0 auto 6px;
+    }
+
+    #sheet h2 {
+      margin: 0 0 4px;
+      font-size: 15px;
+      color: #0f172a;
+    }
+
+    #sheet p {
+      margin: 2px 0;
+      font-size: 12px;
+      color: #334155;
+    }
+
+    #sheet .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+      margin-bottom: 4px;
+    }
+
+    .tag {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #e0f2fe;
+      color: #0369a1;
+    }
+
+    .tag.green {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .tag.orange {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    @media (min-width: 900px) {
+      #sheet {
+        left: auto;
+        right: 16px;
+        bottom: 16px;
+        width: 360px;
+        border-radius: 16px;
+      }
+      #sheet-handle {
+        display: none;
+      }
     }
   </style>
 </head>
 <body>
   <div id="map"></div>
 
-  <div id="controls">
-    <h2>Arremate Certo – v0.3</h2>
-    <p>Toque em “Buscar imóveis” para ver os pins no mapa.</p>
-    <div>
-      <label for="ufSelect">UF:</label>
+  <header id="topbar">
+    <div id="title-row">
+      <div>
+        <h1>Arremate Certo</h1>
+        <span>Mapa de oportunidades em imóveis de leilão da Caixa (demo)</span>
+      </div>
+    </div>
+
+    <div id="filters-row">
+      <label for="ufSelect">UF</label>
       <select id="ufSelect">
-        <option value="SP">SP</option>
+        <option value="SP" selected>SP</option>
         <option value="RJ">RJ</option>
         <option value="MG">MG</option>
         <option value="PR">PR</option>
         <option value="RS">RS</option>
       </select>
+
       <button id="btnBuscar">Buscar imóveis</button>
+      <span id="status"></span>
     </div>
-    <div id="status"></div>
-  </div>
+  </header>
+
+  <section id="sheet">
+    <div id="sheet-handle"></div>
+    <h2>Navegue pelo mapa</h2>
+    <p>Use zoom e arraste o mapa. Toque em um pin para ver os detalhes do imóvel aqui.</p>
+  </section>
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 
   <script>
-    // Backend FIXO do Arremate Certo
+    // Backend fixo do Arremate Certo
     const BACKEND_URL = 'https://arrematecerto.onrender.com';
 
     const ufSelect = document.getElementById('ufSelect');
     const btnBuscar = document.getElementById('btnBuscar');
     const statusEl = document.getElementById('status');
+    const sheetEl = document.getElementById('sheet');
 
-    // cria o mapa centrado em SP
+    // cria mapa centrado em SP
     const map = L.map('map').setView([-23.55, -46.63], 11);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -106,19 +231,46 @@
 
     let markersLayer = L.layerGroup().addTo(map);
 
+    function preencherSheetInicial() {
+      sheetEl.innerHTML = `
+        <div id="sheet-handle"></div>
+        <h2>Navegue pelo mapa</h2>
+        <p>Toque em “Buscar imóveis” e depois clique em um pin para ver os detalhes aqui.</p>
+        <p style="margin-top:6px;">Versão demo utilizando dados mockados do backend.</p>
+      `;
+    }
+
+    function preencherSheetImovel(i) {
+      const modalidade = i.modalidade || 'Modalidade não informada';
+      const situacao = i.situacao || 'Situação não informada';
+
+      sheetEl.innerHTML = `
+        <div id="sheet-handle"></div>
+        <h2>${i.tipo || 'Imóvel de leilão'}</h2>
+        <div class="tag-row">
+          <span class="tag green">${modalidade}</span>
+          <span class="tag orange">${situacao}</span>
+        </div>
+        <p><strong>Localização:</strong> ${i.logradouro || ''}${i.logradouro ? ', ' : ''}${i.bairro || ''} – ${i.cidade || ''}/${i.uf || ''}</p>
+        <p><strong>Valor:</strong> ${i.valor ? 'R$ ' + i.valor.toLocaleString('pt-BR') : 'Não informado'}</p>
+        <p><strong>Área:</strong> ${i.area ? i.area + ' m²' : 'Não informada'}</p>
+      `;
+    }
+
     async function buscarImoveis() {
       const uf = ufSelect.value;
-      statusEl.textContent = 'Carregando imóveis...';
+      statusEl.textContent = 'Carregando...';
 
       try {
         const resp = await fetch(`${BACKEND_URL}/api/imoveis?uf=${encodeURIComponent(uf)}`);
-        if (!resp.ok) {
-          throw new Error('HTTP ' + resp.status);
-        }
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
         const imoveis = await resp.json();
-        statusEl.textContent = `Encontrados: ${imoveis.length} imóveis`;
+        statusEl.textContent = `Encontrados: ${imoveis.length} imóvel(is)`;
 
         markersLayer.clearLayers();
+        preencherSheetInicial();
+
         if (!imoveis.length) return;
 
         const bounds = [];
@@ -132,17 +284,17 @@
 
           const popupHtml = `
             <b>${i.tipo || 'Imóvel'}</b><br/>
-            ${i.logradouro || ''}<br/>
-            ${i.bairro || ''} - ${i.cidade || ''}/${i.uf || ''}<br/>
-            Modalidade: ${i.modalidade || ''}<br/>
-            Valor: R$ ${i.valor?.toLocaleString('pt-BR') || ''}<br/>
-            Área: ${i.area || ''} m²
+            ${i.cidade || ''}/${i.uf || ''}
           `;
           marker.bindPopup(popupHtml);
+
+          marker.on('click', () => {
+            preencherSheetImovel(i);
+          });
         });
 
         if (bounds.length) {
-          map.fitBounds(bounds, { padding: [40, 40] });
+          map.fitBounds(bounds, { padding: [40, 80] });
         }
       } catch (e) {
         console.error(e);
@@ -151,6 +303,9 @@
     }
 
     btnBuscar.addEventListener('click', buscarImoveis);
+
+    // estado inicial: texto no sheet
+    preencherSheetInicial();
   </script>
 </body>
 </html>
