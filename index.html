@@ -84,7 +84,7 @@
       opacity: 0.9;
     }
 
-    select, input[type="number"] {
+    select {
       font-size: 12px;
       padding: 4px 8px;
       border-radius: 999px;
@@ -94,7 +94,7 @@
       outline: none;
     }
 
-    select:disabled, input:disabled {
+    select:disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
@@ -112,23 +112,6 @@
       display: flex;
       align-items: center;
       gap: 4px;
-    }
-
-    .valor-group {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      flex-wrap: nowrap;
-    }
-
-    .valor-group span {
-      font-size: 11px;
-      white-space: nowrap;
-      opacity: 0.9;
-    }
-
-    .valor-group input {
-      width: 80px;
     }
 
     #btnFiltrar {
@@ -246,14 +229,23 @@
       <div class="filter-group">
         <label for="tipoFilter">Tipo</label>
         <select id="tipoFilter" disabled>
-          <option value="">Todos</option>
+          <option value="">Indiferente</option>
+          <option value="Apartamento">Apartamento</option>
+          <option value="Casa">Casa</option>
+          <option value="Outros">Outros</option>
         </select>
       </div>
 
-      <div class="valor-group">
-        <span>Valor (R$)</span>
-        <input type="number" id="minValor" placeholder="mín" disabled />
-        <input type="number" id="maxValor" placeholder="máx" disabled />
+      <div class="filter-group">
+        <label for="faixaValor">Faixa de valor</label>
+        <select id="faixaValor" disabled>
+          <option value="">Todas</option>
+          <option value="0-100">Até 100k</option>
+          <option value="100-200">100k a 200k</option>
+          <option value="200-400">200k a 400k</option>
+          <option value="400-750">400k a 750k</option>
+          <option value="750+">Acima de 750k</option>
+        </select>
       </div>
 
       <button id="btnFiltrar" disabled>Filtrar imóveis</button>
@@ -264,7 +256,7 @@
     <div id="sheet-handle"></div>
     <h2>Comece carregando o CSV</h2>
     <p>No site da Caixa, selecione o estado, baixe o CSV e depois escolha o arquivo aqui em cima.</p>
-    <p style="margin-top:6px;">Depois use os filtros (cidade, modalidade, tipo e valor) e clique em <strong>Filtrar imóveis</strong> para ver os pins no mapa.</p>
+    <p style="margin-top:6px;">Depois use os filtros e clique em <strong>Filtrar imóveis</strong> para ver os pins no mapa.</p>
   </section>
 
   <!-- Leaflet + PapaParse -->
@@ -280,19 +272,18 @@
     const cidadeSel   = document.getElementById("cidadeFilter");
     const modSel      = document.getElementById("modalidadeFilter");
     const tipoSel     = document.getElementById("tipoFilter");
-    const minValorInp = document.getElementById("minValor");
-    const maxValorInp = document.getElementById("maxValor");
+    const faixaSel    = document.getElementById("faixaValor");
     const btnFiltrar  = document.getElementById("btnFiltrar");
 
-    // Mapa (centro SP só como default)
+    // Mapa
     const map = L.map("map").setView([-22.5, -48], 6);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19
     }).addTo(map);
 
     let markersLayer = L.layerGroup().addTo(map);
-    let imoveis = [];        // todos do CSV
-    let imoveisFiltrados = []; // resultado atual de filtro
+    let imoveis = [];
+    let imoveisFiltrados = [];
     let imovelSelecionado = null;
 
     function parseNumeroBr(valorStr) {
@@ -304,13 +295,22 @@
       return Number.isNaN(n) ? 0 : n;
     }
 
+    // >>> Tipo: só Apartamento, Casa ou Outros
+    function inferirTipoDescricao(descRaw) {
+      const d = (descRaw || "").toLowerCase();
+      if (d.includes("apartamento")) return "Apartamento";
+      if (d.includes("casa") || d.includes("sobrado")) return "Casa";
+      return "Outros";
+    }
+
     function normalizarImovel(row, idx) {
       const uf         = (row["UF"] || "").trim();
       const cidade     = (row["Cidade"] || "").trim();
       const bairro     = (row["Bairro"] || "").trim();
       const endereco   = (row["Endereço"] || "").trim();
       const modalidade = (row["Modalidade de venda"] || "").trim();
-      const tipo       = ((row["Descrição"] || "").split(",")[0] || "Imóvel").trim();
+      const descRaw    = (row["Descrição"] || "").trim();
+      const tipo       = inferirTipoDescricao(descRaw);
 
       const valor      = parseNumeroBr(row["Preço"]);
       const valorAval  = parseNumeroBr(row["Valor de avaliação"]);
@@ -326,6 +326,7 @@
         logradouro: endereco,
         modalidade,
         tipo,
+        descRaw,
         valor,
         valor_avaliacao: valorAval,
         desconto,
@@ -345,8 +346,19 @@
       `;
     }
 
+    function limparLogradouroParaBusca(logradouro) {
+      let s = (logradouro || "").toLowerCase();
+      const lixo = ["qd", "quadra", "lt", "lote", "cj", "conj", "bl", "bloco", "apt", "apto"];
+      lixo.forEach(tok => {
+        const re = new RegExp("\\b" + tok + "\\b", "g");
+        s = s.replace(re, " ");
+      });
+      return s.replace(/\s+/g, " ").trim();
+    }
+
     async function geocodeEndereco(imovel) {
-      const enderecoFmt = `${imovel.logradouro}, ${imovel.bairro}, ${imovel.cidade}, ${imovel.uf}, Brasil`;
+      const logBusca = limparLogradouroParaBusca(imovel.logradouro);
+      const enderecoFmt = `${logBusca}, ${imovel.bairro}, ${imovel.cidade}, ${imovel.uf}, Brasil`;
 
       if (!window._geoCache) window._geoCache = {};
       if (window._geoCache[enderecoFmt]) {
@@ -396,6 +408,7 @@
           <span class="tag green">${i.modalidade || "Modalidade não informada"}</span>
         </div>
 
+        <p><strong>Descrição Caixa:</strong> ${i.descRaw || "Não informada"}</p>
         <p><strong>Local:</strong> ${i.logradouro || ""}${i.logradouro ? ", " : ""}${i.bairro || ""} – ${i.cidade || ""}/${i.uf || ""}</p>
         <p><strong>Valor:</strong> ${valorTexto}</p>
         <p><strong>Avaliação:</strong> ${avalTexto}</p>
@@ -452,7 +465,7 @@
       const bounds = [];
 
       const total = lista.length;
-      const LIMITE_GEO = 120; // limite de imóveis por filtro
+      const LIMITE_GEO = 120;
       const limite = Math.min(total, LIMITE_GEO);
 
       if (!limite) {
@@ -473,7 +486,18 @@
           const marker = L.marker([lat, lon]).addTo(markersLayer);
           bounds.push([lat, lon]);
 
-          marker.on("click", () => preencherSheetImovel(imovel));
+          const enderecoCurto = `${imovel.bairro || ""} - ${imovel.cidade || ""}/${imovel.uf || ""}`;
+          const valorPopup = imovel.valor
+            ? "R$ " + imovel.valor.toLocaleString("pt-BR")
+            : "Valor não informado";
+
+          marker.bindPopup(
+            `<strong>${imovel.tipo}</strong><br>${enderecoCurto}<br>${valorPopup}`
+          );
+
+          marker.on("click", () => {
+            preencherSheetImovel(imovel);
+          });
         }
       }
 
@@ -496,16 +520,23 @@
 
       const cidade   = cidadeSel.value;
       const modalidade = modSel.value;
-      const tipo     = tipoSel.value;
-      const minVal   = minValorInp.value ? Number(minValorInp.value) : null;
-      const maxVal   = maxValorInp.value ? Number(maxValorInp.value) : null;
+      const tipo     = tipoSel.value; // "" = indiferente
+      const faixa    = faixaSel.value;
 
       imoveisFiltrados = imoveis.filter(i => {
         if (cidade && i.cidade !== cidade) return false;
         if (modalidade && i.modalidade !== modalidade) return false;
-        if (tipo && i.tipo !== tipo) return false;
-        if (minVal != null && i.valor && i.valor < minVal) return false;
-        if (maxVal != null && i.valor && i.valor > maxVal) return false;
+        if (tipo && i.tipo !== tipo && tipo !== "") return false;
+
+        if (faixa) {
+          const v = i.valor || 0;
+          if (faixa === "0-100"  && !(v <= 100000)) return false;
+          if (faixa === "100-200" && !(v > 100000 && v <= 200000)) return false;
+          if (faixa === "200-400" && !(v > 200000 && v <= 400000)) return false;
+          if (faixa === "400-750" && !(v > 400000 && v <= 750000)) return false;
+          if (faixa === "750+"   && !(v > 750000)) return false;
+        }
+
         return true;
       });
 
@@ -522,39 +553,18 @@
         new Set(imoveis.map(i => i.modalidade).filter(Boolean))
       ).sort((a,b) => a.localeCompare(b, "pt-BR"));
 
-      const tipos = Array.from(
-        new Set(imoveis.map(i => i.tipo).filter(Boolean))
-      ).sort((a,b) => a.localeCompare(b, "pt-BR"));
-
       cidadeSel.innerHTML = `<option value="">Todas</option>` +
         cidades.map(c => `<option value="${c}">${c}</option>`).join("");
 
       modSel.innerHTML = `<option value="">Todas</option>` +
         modalidades.map(m => `<option value="${m}">${m}</option>`).join("");
 
-      tipoSel.innerHTML = `<option value="">Todos</option>` +
-        tipos.map(t => `<option value="${t}">${t}</option>`).join("");
-
-      const valores = imoveis
-        .map(i => i.valor)
-        .filter(v => typeof v === "number" && v > 0);
-
-      if (valores.length) {
-        const min = Math.min(...valores);
-        const max = Math.max(...valores);
-        minValorInp.value = Math.floor(min);
-        maxValorInp.value = Math.ceil(max);
-      } else {
-        minValorInp.value = "";
-        maxValorInp.value = "";
-      }
-
-      cidadeSel.disabled   = false;
-      modSel.disabled      = false;
-      tipoSel.disabled     = false;
-      minValorInp.disabled = false;
-      maxValorInp.disabled = false;
-      btnFiltrar.disabled  = false;
+      // tipoSel já está com Apartamento / Casa / Outros fixos
+      cidadeSel.disabled = false;
+      modSel.disabled = false;
+      tipoSel.disabled = false;
+      faixaSel.disabled = false;
+      btnFiltrar.disabled = false;
     }
 
     fileInput.addEventListener("change", () => {
@@ -571,7 +581,6 @@
           try {
             const rows = results.data;
 
-            // acha o header pela combinação UF + Cidade
             const headerIndex = rows.findIndex(r => {
               const c1 = (r[1] || "").trim().toUpperCase();
               const c2 = (r[2] || "").trim().toUpperCase();
