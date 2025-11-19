@@ -182,14 +182,14 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script>
-    // Backend fixo (somente para IA)
+    // Backend (para IA)
     const BACKEND_URL = 'https://arrematecerto.onrender.com';
 
     const fileInput = document.getElementById('fileInput');
     const statusEl  = document.getElementById('status');
     const sheetEl   = document.getElementById('sheet');
 
-    // Mapa
+    // Mapa base
     const map = L.map('map').setView([-14.235, -51.9253], 4); // Brasil
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -207,6 +207,7 @@
       'santos|SP': [-23.9632, -46.3322],
       'guarujá|SP': [-23.9925, -46.2569],
       'guaruja|SP': [-23.9925, -46.2569],
+      'campinas|SP': [-22.9099, -47.0626],
       'rio de janeiro|RJ': [-22.9068, -43.1729],
       'belo horizonte|MG': [-19.9167, -43.9345],
       'curitiba|PR': [-25.4284, -49.2733],
@@ -234,64 +235,19 @@
       return Number.isNaN(n) ? 0 : n;
     }
 
+    // row é um objeto com as colunas do CSV da Caixa
     function normalizarImovel(row, idx) {
-      const uf =
-        row['UF'] ||
-        row['Uf'] ||
-        row['uf'] ||
-        '';
+      const uf        = (row['UF'] || '').trim();
+      const cidade    = (row['Cidade'] || '').trim();
+      const bairro    = (row['Bairro'] || '').trim();
+      const endereco  = (row['Endereço'] || '').trim();
+      const modalidade= (row['Modalidade de venda'] || '').trim();
+      const tipo      = (row['Descrição'] || '').split(',')[0] || 'Imóvel';
 
-      const cidade =
-        row['MUNICIPIO'] ||
-        row['Município'] ||
-        row['MUNICÍPIO'] ||
-        row['CIDADE'] ||
-        row['Cidade'] ||
-        '';
-
-      const bairro =
-        row['BAIRRO'] ||
-        row['Bairro'] ||
-        '';
-
-      const logradouro =
-        row['ENDERECO'] ||
-        row['Endereço'] ||
-        row['LOGRADOURO'] ||
-        row['Logradouro'] ||
-        '';
-
-      const modalidade =
-        row['MODALIDADE'] ||
-        row['Modalidade'] ||
-        '';
-
-      const tipo =
-        row['TIPO_IMOVEL'] ||
-        row['Tipo de Imóvel'] ||
-        row['TIPO'] ||
-        '';
-
-      const situacao =
-        row['SITUACAO'] ||
-        row['Situação'] ||
-        '';
-
-      const valorStr =
-        row['VALOR'] ||
-        row['Valor'] ||
-        row['VALOR_AVALIACAO'] ||
-        row['Valor de Avaliação'] ||
-        '';
-
-      const areaStr =
-        row['AREA_TOTAL'] ||
-        row['Área Total'] ||
-        row['AREA'] ||
-        '';
-
-      const valor = parseNumeroBr(valorStr);
-      const area  = parseNumeroBr(areaStr);
+      const valor     = parseNumeroBr(row['Preço']);
+      const valorAval = parseNumeroBr(row['Valor de avaliação']);
+      const desconto  = row['Desconto'] || '';
+      const link      = (row['Link de acesso'] || '').trim();
 
       const [lat, lng] = guessCoords(uf, cidade);
 
@@ -301,12 +257,15 @@
         uf,
         cidade,
         bairro,
-        logradouro,
+        logradouro: endereco,
         modalidade,
         tipo,
-        situacao,
+        situacao: '',               // CSV não tem situação explícita
         valor,
-        area,
+        valor_avaliacao: valorAval,
+        desconto,
+        link,
+        area: 0,                    // CSV não traz área em coluna separada
         lat,
         lng
       };
@@ -336,8 +295,14 @@
           <span class="tag orange">${situacao}</span>
         </div>
         <p><strong>Localização:</strong> ${i.logradouro || ''}${i.logradouro ? ', ' : ''}${i.bairro || ''} – ${i.cidade || ''}/${i.uf || ''}</p>
-        <p><strong>Valor:</strong> ${i.valor ? 'R$ ' + i.valor.toLocaleString('pt-BR') : 'Não informado'}</p>
-        <p><strong>Área:</strong> ${i.area ? i.area + ' m²' : 'Não informada'}</p>
+        <p><strong>Valor de venda:</strong> ${i.valor ? 'R$ ' + i.valor.toLocaleString('pt-BR') : 'Não informado'}</p>
+        <p><strong>Valor de avaliação:</strong> ${i.valor_avaliacao ? 'R$ ' + i.valor_avaliacao.toLocaleString('pt-BR') : 'Não informado'}</p>
+        <p><strong>Desconto informado:</strong> ${i.desconto || 'Não informado'}%</p>
+        ${
+          i.link
+            ? `<p><a href="${i.link}" target="_blank" rel="noopener" style="font-size:12px;">Ver anúncio no site da Caixa</a></p>`
+            : ''
+        }
 
         <button id="btnAnaliseIA" style="
           margin-top:8px;
@@ -441,6 +406,7 @@
       preencherSheetInicial();
     }
 
+    // Lê o CSV da Caixa: arquivo -> linhas -> encontra cabeçalho "N° do imóvel" -> monta objetos
     fileInput.addEventListener('change', () => {
       const file = fileInput.files[0];
       if (!file) return;
@@ -448,13 +414,36 @@
       statusEl.textContent = 'Lendo CSV...';
 
       Papa.parse(file, {
-        header: true,
+        header: false,
         skipEmptyLines: true,
         delimiter: ';',
         complete: function(results) {
           try {
             const rows = results.data;
-            let lista = rows.map((row, idx) => normalizarImovel(row, idx));
+
+            // encontra a linha do cabeçalho real ("N° do imóvel;UF;Cidade;...")
+            const headerIndex = rows.findIndex(
+              r => (r[0] || '').trim().startsWith('N° do imóvel')
+            );
+
+            if (headerIndex === -1) {
+              statusEl.textContent = 'Não encontrei o cabeçalho esperado no CSV.';
+              preencherSheetInicial();
+              return;
+            }
+
+            const headerRow = rows[headerIndex].map(h => (h || '').trim());
+            const dataRows = rows.slice(headerIndex + 1).filter(
+              r => (r[0] || '').trim() !== ''
+            );
+
+            let lista = dataRows.map((r, idx) => {
+              const obj = {};
+              headerRow.forEach((h, colIdx) => {
+                obj[h] = (r[colIdx] || '').trim();
+              });
+              return normalizarImovel(obj, idx);
+            });
 
             const total = lista.length;
             const LIMITE = 400;
