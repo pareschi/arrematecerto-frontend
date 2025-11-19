@@ -35,7 +35,7 @@
       top: 0;
       left: 0;
       right: 0;
-      padding: 10px 14px;
+      padding: 10px 14px 8px;
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -62,14 +62,14 @@
       opacity: 0.8;
     }
 
-    #controls-row {
+    #upload-row, #filters-row {
       display: flex;
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
     }
 
-    #controls-row label {
+    #upload-row label {
       font-size: 12px;
       opacity: 0.9;
     }
@@ -82,6 +82,69 @@
     #status {
       font-size: 11px;
       opacity: 0.9;
+    }
+
+    select, input[type="number"] {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid #1f2937;
+      background: #020617;
+      color: #e5e7eb;
+      outline: none;
+    }
+
+    select:disabled, input:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #filters-row {
+      margin-top: 2px;
+    }
+
+    #filters-row label {
+      font-size: 11px;
+      opacity: 0.9;
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .valor-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-wrap: nowrap;
+    }
+
+    .valor-group span {
+      font-size: 11px;
+      white-space: nowrap;
+      opacity: 0.9;
+    }
+
+    .valor-group input {
+      width: 80px;
+    }
+
+    #btnFiltrar {
+      padding: 6px 12px;
+      font-size: 12px;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      background: #22c55e;
+      color: #022c22;
+      font-weight: 600;
+    }
+
+    #btnFiltrar:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     #sheet {
@@ -155,22 +218,53 @@
     <div id="title-row">
       <div>
         <h1>Arremate Certo</h1>
-        <span>Envie o CSV da Caixa e visualize os imóveis no mapa, com análise de IA.</span>
+        <span>Imóveis de leilão da Caixa no mapa, com filtros e análise de IA.</span>
       </div>
     </div>
 
-    <div id="controls-row">
+    <div id="upload-row">
       <label for="fileInput">CSV da Caixa (.csv)</label>
       <input type="file" id="fileInput" accept=".csv" />
       <span id="status"></span>
+    </div>
+
+    <div id="filters-row">
+      <div class="filter-group">
+        <label for="cidadeFilter">Cidade</label>
+        <select id="cidadeFilter" disabled>
+          <option value="">Todas</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="modalidadeFilter">Modalidade</label>
+        <select id="modalidadeFilter" disabled>
+          <option value="">Todas</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="tipoFilter">Tipo</label>
+        <select id="tipoFilter" disabled>
+          <option value="">Todos</option>
+        </select>
+      </div>
+
+      <div class="valor-group">
+        <span>Valor (R$)</span>
+        <input type="number" id="minValor" placeholder="mín" disabled />
+        <input type="number" id="maxValor" placeholder="máx" disabled />
+      </div>
+
+      <button id="btnFiltrar" disabled>Filtrar imóveis</button>
     </div>
   </header>
 
   <section id="sheet">
     <div id="sheet-handle"></div>
-    <h2>Importe um CSV da Caixa</h2>
-    <p>No site da Caixa, baixe o CSV do estado desejado e selecione o arquivo aqui em cima.</p>
-    <p style="margin-top:6px;">Depois clique em um pin para ver detalhes e rodar a análise de viabilidade com IA.</p>
+    <h2>Comece carregando o CSV</h2>
+    <p>No site da Caixa, selecione o estado, baixe o CSV e depois escolha o arquivo aqui em cima.</p>
+    <p style="margin-top:6px;">Depois use os filtros (cidade, modalidade, tipo e valor) e clique em <strong>Filtrar imóveis</strong> para ver os pins no mapa.</p>
   </section>
 
   <!-- Leaflet + PapaParse -->
@@ -180,18 +274,25 @@
   <script>
     const BACKEND_URL = "https://arrematecerto.onrender.com";
 
-    const fileInput = document.getElementById("fileInput");
-    const statusEl  = document.getElementById("status");
-    const sheetEl   = document.getElementById("sheet");
+    const fileInput   = document.getElementById("fileInput");
+    const statusEl    = document.getElementById("status");
+    const sheetEl     = document.getElementById("sheet");
+    const cidadeSel   = document.getElementById("cidadeFilter");
+    const modSel      = document.getElementById("modalidadeFilter");
+    const tipoSel     = document.getElementById("tipoFilter");
+    const minValorInp = document.getElementById("minValor");
+    const maxValorInp = document.getElementById("maxValor");
+    const btnFiltrar  = document.getElementById("btnFiltrar");
 
-    // Mapa: centro em SP
+    // Mapa (centro SP só como default)
     const map = L.map("map").setView([-22.5, -48], 6);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19
     }).addTo(map);
 
     let markersLayer = L.layerGroup().addTo(map);
-    let imoveis = [];
+    let imoveis = [];        // todos do CSV
+    let imoveisFiltrados = []; // resultado atual de filtro
     let imovelSelecionado = null;
 
     function parseNumeroBr(valorStr) {
@@ -216,7 +317,6 @@
       const desconto   = (row["Desconto"] || "").trim();
       const link       = (row["Link de acesso"] || "").trim();
 
-      // Sem lat/lng aqui – serão preenchidos após geocode
       return {
         id: idx,
         bruto: row,
@@ -239,8 +339,9 @@
     function preencherSheetInicial() {
       sheetEl.innerHTML = `
         <div id="sheet-handle"></div>
-        <h2>Importe um CSV da Caixa</h2>
-        <p>Depois clique em um pin para ver detalhes e usar IA.</p>
+        <h2>Use os filtros e clique em Filtrar</h2>
+        <p>Selecione cidade, modalidade, tipo e faixa de valor para focar nos imóveis que fazem sentido para você.</p>
+        <p style="margin-top:6px;">Depois clique em um pin para ver os detalhes e rodar a análise de viabilidade com IA.</p>
       `;
     }
 
@@ -351,18 +452,18 @@
       const bounds = [];
 
       const total = lista.length;
-      const LIMITE_GEO = 120; // geocodifica só os primeiros 120 para não abusar da API
+      const LIMITE_GEO = 120; // limite de imóveis por filtro
       const limite = Math.min(total, LIMITE_GEO);
 
       if (!limite) {
-        statusEl.textContent = "Nenhum imóvel para geocodificar.";
+        statusEl.textContent = "Nenhum imóvel atende aos filtros.";
         preencherSheetInicial();
         return;
       }
 
       for (let idx = 0; idx < limite; idx++) {
         const imovel = lista[idx];
-        statusEl.textContent = `Geocodificando imóveis (${idx + 1}/${limite})...`;
+        statusEl.textContent = `Geocodificando imóveis do filtro (${idx + 1}/${limite})...`;
 
         const [lat, lon] = await geocodeEndereco(imovel);
         if (lat != null && lon != null) {
@@ -378,13 +479,82 @@
 
       if (bounds.length) {
         map.fitBounds(bounds, { padding: [40, 80] });
-        statusEl.textContent = `Mapa carregado com ${bounds.length} imóveis geolocalizados (de ${total}).`;
+        const msgExtra = total > limite
+          ? ` (mostrando até ${limite} imóveis no mapa)`
+          : "";
+        statusEl.textContent = `Filtro aplicado: ${bounds.length} imóveis geolocalizados de ${total}${msgExtra}.`;
       } else {
         map.setView([-22.5, -48], 6);
-        statusEl.textContent = "Não foi possível geolocalizar os imóveis (endereços muito genéricos?).";
+        statusEl.textContent = "Nenhum imóvel do filtro pôde ser geolocalizado.";
       }
 
       preencherSheetInicial();
+    }
+
+    function aplicarFiltros() {
+      if (!imoveis.length) return;
+
+      const cidade   = cidadeSel.value;
+      const modalidade = modSel.value;
+      const tipo     = tipoSel.value;
+      const minVal   = minValorInp.value ? Number(minValorInp.value) : null;
+      const maxVal   = maxValorInp.value ? Number(maxValorInp.value) : null;
+
+      imoveisFiltrados = imoveis.filter(i => {
+        if (cidade && i.cidade !== cidade) return false;
+        if (modalidade && i.modalidade !== modalidade) return false;
+        if (tipo && i.tipo !== tipo) return false;
+        if (minVal != null && i.valor && i.valor < minVal) return false;
+        if (maxVal != null && i.valor && i.valor > maxVal) return false;
+        return true;
+      });
+
+      statusEl.textContent = `Filtro retornou ${imoveisFiltrados.length} imóveis. Iniciando geocodificação...`;
+      geocodificarEPlotar(imoveisFiltrados);
+    }
+
+    function popularFiltros() {
+      const cidades = Array.from(
+        new Set(imoveis.map(i => i.cidade).filter(Boolean))
+      ).sort((a,b) => a.localeCompare(b, "pt-BR"));
+
+      const modalidades = Array.from(
+        new Set(imoveis.map(i => i.modalidade).filter(Boolean))
+      ).sort((a,b) => a.localeCompare(b, "pt-BR"));
+
+      const tipos = Array.from(
+        new Set(imoveis.map(i => i.tipo).filter(Boolean))
+      ).sort((a,b) => a.localeCompare(b, "pt-BR"));
+
+      cidadeSel.innerHTML = `<option value="">Todas</option>` +
+        cidades.map(c => `<option value="${c}">${c}</option>`).join("");
+
+      modSel.innerHTML = `<option value="">Todas</option>` +
+        modalidades.map(m => `<option value="${m}">${m}</option>`).join("");
+
+      tipoSel.innerHTML = `<option value="">Todos</option>` +
+        tipos.map(t => `<option value="${t}">${t}</option>`).join("");
+
+      const valores = imoveis
+        .map(i => i.valor)
+        .filter(v => typeof v === "number" && v > 0);
+
+      if (valores.length) {
+        const min = Math.min(...valores);
+        const max = Math.max(...valores);
+        minValorInp.value = Math.floor(min);
+        maxValorInp.value = Math.ceil(max);
+      } else {
+        minValorInp.value = "";
+        maxValorInp.value = "";
+      }
+
+      cidadeSel.disabled   = false;
+      modSel.disabled      = false;
+      tipoSel.disabled     = false;
+      minValorInp.disabled = false;
+      maxValorInp.disabled = false;
+      btnFiltrar.disabled  = false;
     }
 
     fileInput.addEventListener("change", () => {
@@ -401,7 +571,7 @@
           try {
             const rows = results.data;
 
-            // Acha o cabeçalho pela combinação UF + Cidade nas colunas 2 e 3
+            // acha o header pela combinação UF + Cidade
             const headerIndex = rows.findIndex(r => {
               const c1 = (r[1] || "").trim().toUpperCase();
               const c2 = (r[2] || "").trim().toUpperCase();
@@ -411,7 +581,6 @@
             if (headerIndex === -1) {
               console.error("Cabeçalho não encontrado. Primeiras linhas:", rows.slice(0,5));
               statusEl.textContent = "Erro: cabeçalho do CSV não encontrado.";
-              preencherSheetInicial();
               return;
             }
 
@@ -420,7 +589,7 @@
               .slice(headerIndex + 1)
               .filter(r => (r[0] || "").trim() !== "");
 
-            let lista = dataRows.map((r, idx) => {
+            const lista = dataRows.map((r, idx) => {
               const obj = {};
               headerRow.forEach((h, colIdx) => {
                 obj[h] = (r[colIdx] || "").trim();
@@ -428,24 +597,23 @@
               return normalizarImovel(obj, idx);
             });
 
-            const total = lista.length;
-            statusEl.textContent = `CSV lido (${total} imóveis). Iniciando geocodificação...`;
-
             imoveis = lista;
-            geocodificarEPlotar(lista);
+            statusEl.textContent = `CSV carregado (${lista.length} imóveis). Agora selecione os filtros e clique em "Filtrar imóveis".`;
+            popularFiltros();
+            preencherSheetInicial();
           } catch (e) {
             console.error("Erro no processamento do CSV:", e);
             statusEl.textContent = "Erro ao processar o CSV (veja o console do navegador).";
-            preencherSheetInicial();
           }
         },
         error: function(err) {
           console.error("Erro PapaParse:", err);
           statusEl.textContent = "Erro ao ler o arquivo CSV.";
-          preencherSheetInicial();
         }
       });
     });
+
+    btnFiltrar.addEventListener("click", aplicarFiltros);
 
     preencherSheetInicial();
   </script>
