@@ -295,7 +295,7 @@
       return Number.isNaN(n) ? 0 : n;
     }
 
-    // >>> Tipo: só Apartamento, Casa ou Outros
+    // Tipo: Apartamento / Casa / Outros
     function inferirTipoDescricao(descRaw) {
       const d = (descRaw || "").toLowerCase();
       if (d.includes("apartamento")) return "Apartamento";
@@ -520,13 +520,13 @@
 
       const cidade   = cidadeSel.value;
       const modalidade = modSel.value;
-      const tipo     = tipoSel.value; // "" = indiferente
+      const tipo     = tipoSel.value; // "" = Indiferente
       const faixa    = faixaSel.value;
 
       imoveisFiltrados = imoveis.filter(i => {
         if (cidade && i.cidade !== cidade) return false;
         if (modalidade && i.modalidade !== modalidade) return false;
-        if (tipo && i.tipo !== tipo && tipo !== "") return false;
+        if (tipo && tipo !== "Indiferente" && i.tipo !== tipo) return false;
 
         if (faixa) {
           const v = i.valor || 0;
@@ -559,7 +559,6 @@
       modSel.innerHTML = `<option value="">Todas</option>` +
         modalidades.map(m => `<option value="${m}">${m}</option>`).join("");
 
-      // tipoSel já está com Apartamento / Casa / Outros fixos
       cidadeSel.disabled = false;
       modSel.disabled = false;
       tipoSel.disabled = false;
@@ -567,59 +566,79 @@
       btnFiltrar.disabled = false;
     }
 
+    // >>> AQUI entra a correção de encoding (ISO-8859-1)
     fileInput.addEventListener("change", () => {
       const file = fileInput.files[0];
       if (!file) return;
 
       statusEl.textContent = "Lendo CSV...";
 
-      Papa.parse(file, {
-        header: false,
-        skipEmptyLines: true,
-        delimiter: ";",
-        complete: function(results) {
-          try {
-            const rows = results.data;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const arrayBuffer = e.target.result;
+          const decoder = new TextDecoder("iso-8859-1");
+          const csvText = decoder.decode(arrayBuffer); // texto já com acentos certos
 
-            const headerIndex = rows.findIndex(r => {
-              const c1 = (r[1] || "").trim().toUpperCase();
-              const c2 = (r[2] || "").trim().toUpperCase();
-              return c1 === "UF" && c2 === "CIDADE";
-            });
+          Papa.parse(csvText, {
+            header: false,
+            skipEmptyLines: true,
+            delimiter: ";",
+            complete: function(results) {
+              try {
+                const rows = results.data;
 
-            if (headerIndex === -1) {
-              console.error("Cabeçalho não encontrado. Primeiras linhas:", rows.slice(0,5));
-              statusEl.textContent = "Erro: cabeçalho do CSV não encontrado.";
-              return;
+                const headerIndex = rows.findIndex(r => {
+                  const c1 = (r[1] || "").trim().toUpperCase();
+                  const c2 = (r[2] || "").trim().toUpperCase();
+                  return c1 === "UF" && c2 === "CIDADE";
+                });
+
+                if (headerIndex === -1) {
+                  console.error("Cabeçalho não encontrado. Primeiras linhas:", rows.slice(0,5));
+                  statusEl.textContent = "Erro: cabeçalho do CSV não encontrado.";
+                  return;
+                }
+
+                const headerRow = rows[headerIndex].map(h => (h || "").trim());
+                const dataRows = rows
+                  .slice(headerIndex + 1)
+                  .filter(r => (r[0] || "").trim() !== "");
+
+                const lista = dataRows.map((r, idx) => {
+                  const obj = {};
+                  headerRow.forEach((h, colIdx) => {
+                    obj[h] = (r[colIdx] || "").trim();
+                  });
+                  return normalizarImovel(obj, idx);
+                });
+
+                imoveis = lista;
+                statusEl.textContent = `CSV carregado (${lista.length} imóveis). Agora selecione os filtros e clique em "Filtrar imóveis".`;
+                popularFiltros();
+                preencherSheetInicial();
+              } catch (e) {
+                console.error("Erro no processamento do CSV:", e);
+                statusEl.textContent = "Erro ao processar o CSV (veja o console do navegador).";
+              }
+            },
+            error: function(err) {
+              console.error("Erro PapaParse:", err);
+              statusEl.textContent = "Erro ao ler o conteúdo do CSV.";
             }
-
-            const headerRow = rows[headerIndex].map(h => (h || "").trim());
-            const dataRows = rows
-              .slice(headerIndex + 1)
-              .filter(r => (r[0] || "").trim() !== "");
-
-            const lista = dataRows.map((r, idx) => {
-              const obj = {};
-              headerRow.forEach((h, colIdx) => {
-                obj[h] = (r[colIdx] || "").trim();
-              });
-              return normalizarImovel(obj, idx);
-            });
-
-            imoveis = lista;
-            statusEl.textContent = `CSV carregado (${lista.length} imóveis). Agora selecione os filtros e clique em "Filtrar imóveis".`;
-            popularFiltros();
-            preencherSheetInicial();
-          } catch (e) {
-            console.error("Erro no processamento do CSV:", e);
-            statusEl.textContent = "Erro ao processar o CSV (veja o console do navegador).";
-          }
-        },
-        error: function(err) {
-          console.error("Erro PapaParse:", err);
-          statusEl.textContent = "Erro ao ler o arquivo CSV.";
+          });
+        } catch (e) {
+          console.error("Erro ao decodificar CSV:", e);
+          statusEl.textContent = "Erro ao decodificar o arquivo CSV.";
         }
-      });
+      };
+
+      reader.onerror = function(err) {
+        console.error("Erro FileReader:", err);
+        statusEl.textContent = "Erro ao ler o arquivo CSV.";
+      };
+
+      reader.readAsArrayBuffer(file); // importante: ler como binário
     });
 
     btnFiltrar.addEventListener("click", aplicarFiltros);
