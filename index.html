@@ -356,6 +356,7 @@
       return s.replace(/\s+/g, " ").trim();
     }
 
+    // *** AQUI: geocode sem header proibido ***
     async function geocodeEndereco(imovel) {
       const logBusca = limparLogradouroParaBusca(imovel.logradouro);
       const enderecoFmt = `${logBusca}, ${imovel.bairro}, ${imovel.cidade}, ${imovel.uf}, Brasil`;
@@ -368,11 +369,7 @@
       const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(enderecoFmt)}&email=arrematecerto@app`;
 
       try {
-        const resp = await fetch(url, {
-          headers: {
-            "User-Agent": "ArremateCerto/1.0 (pesquisa de imoveis)"
-          }
-        });
+        const resp = await fetch(url); // sem headers extras
         const data = await resp.json();
         if (Array.isArray(data) && data.length > 0) {
           const lat = parseFloat(data[0].lat);
@@ -520,7 +517,7 @@
 
       const cidade   = cidadeSel.value;
       const modalidade = modSel.value;
-      const tipo     = tipoSel.value; // "" = Indiferente
+      const tipo     = tipoSel.value; // "Indiferente" = não filtra
       const faixa    = faixaSel.value;
 
       imoveisFiltrados = imoveis.filter(i => {
@@ -566,7 +563,7 @@
       btnFiltrar.disabled = false;
     }
 
-    // >>> AQUI entra a correção de encoding (ISO-8859-1)
+    // leitura do CSV em ISO-8859-1
     fileInput.addEventListener("change", () => {
       const file = fileInput.files[0];
       if (!file) return;
@@ -578,7 +575,7 @@
         try {
           const arrayBuffer = e.target.result;
           const decoder = new TextDecoder("iso-8859-1");
-          const csvText = decoder.decode(arrayBuffer); // texto já com acentos certos
+          const csvText = decoder.decode(arrayBuffer);
 
           Papa.parse(csvText, {
             header: false,
@@ -638,7 +635,7 @@
         statusEl.textContent = "Erro ao ler o arquivo CSV.";
       };
 
-      reader.readAsArrayBuffer(file); // importante: ler como binário
+      reader.readAsArrayBuffer(file);
     });
 
     btnFiltrar.addEventListener("click", aplicarFiltros);
