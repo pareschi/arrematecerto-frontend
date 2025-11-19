@@ -437,12 +437,15 @@
           try {
             const rows = results.data;
 
-            const headerIndex = rows.findIndex(
-              r => (r[0] || "").trim().startsWith("N° do imóvel")
-            );
+            // >>> AJUSTE AQUI: acha o header pela combinação UF + Cidade na 2ª e 3ª colunas
+            const headerIndex = rows.findIndex(r => {
+              const c1 = (r[1] || "").trim().toUpperCase();
+              const c2 = (r[2] || "").trim().toUpperCase();
+              return c1 === "UF" && c2 === "CIDADE";
+            });
 
             if (headerIndex === -1) {
-              console.error("Cabeçalho não encontrado", rows.slice(0,5));
+              console.error("Cabeçalho não encontrado. Primeiras linhas:", rows.slice(0,5));
               statusEl.textContent = "Erro: cabeçalho do CSV não encontrado.";
               preencherSheetInicial();
               return;
