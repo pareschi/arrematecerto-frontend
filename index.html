@@ -2,9 +2,9 @@
 <html lang="pt-br">
 <head>
   <meta charset="utf-8" />
-  <title>Arremate Certo</title>
+  <title>Arremate Certo – v0.3</title>
 
-  <!-- Leaflet CSS (mapa) -->
+  <!-- Leaflet CSS -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -12,164 +12,93 @@
   />
 
   <style>
-    * {
-      box-sizing: border-box;
-    }
-
     html, body {
       margin: 0;
       padding: 0;
       height: 100%;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f5f5f5;
-      color: #222;
     }
-
-    #app {
-      display: flex;
-      flex-direction: column;   /* mobile first: coluna */
-      height: 100%;
-    }
-
-    /* MAPA MOBILE: ocupa 60% da tela */
     #map {
-      width: 100%;
-      height: 60vh;
-      border-bottom: 1px solid #ddd;
+      height: 100vh;   /* mapa ocupa TUDO */
+      width: 100vw;
     }
-
-    #sidebar {
-      width: 100%;
-      padding: 12px 16px 20px;
-      background: #ffffff;
-      box-shadow: 0 -2px 6px rgba(0,0,0,0.05);
-    }
-
-    h2 {
-      margin: 0 0 4px;
-      font-size: 18px;
-    }
-
-    p {
-      margin: 0;
-      font-size: 13px;
-    }
-
-    label {
-      display: block;
-      margin-top: 12px;
-      margin-bottom: 4px;
-      font-size: 13px;
-      font-weight: 600;
-    }
-
-    select, button {
-      padding: 6px 10px;
+    /* Painel flutuante (UF + botão) */
+    #controls {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      max-width: 420px;
+      margin: 0 auto;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.95);
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 14px;
-      margin-right: 6px;
+    }
+    #controls h2 {
+      margin: 0 0 4px;
+      font-size: 16px;
+    }
+    #controls p {
+      margin: 0 0 8px;
+      font-size: 12px;
+    }
+    #controls select, #controls button {
+      padding: 6px 8px;
+      font-size: 13px;
       border-radius: 4px;
       border: 1px solid #ccc;
     }
-
-    button {
+    #controls button {
       background: #2563eb;
       border-color: #2563eb;
       color: #fff;
+      margin-left: 6px;
       cursor: pointer;
     }
-
-    button:hover {
-      background: #1d4ed8;
+    #controls button:active {
+      transform: scale(0.98);
     }
-
     #status {
       margin-top: 6px;
-      font-size: 12px;
-      color: #555;
-    }
-
-    #selectedImovel {
-      margin-top: 12px;
-      padding-top: 8px;
-      border-top: 1px solid #eee;
-      font-size: 13px;
-    }
-
-    #selectedImovel h3 {
-      margin: 0 0 4px;
-      font-size: 14px;
-    }
-
-    #selectedImovel p {
-      margin: 2px 0;
-    }
-
-    /* Layout para telas maiores (desktop/tablet) */
-    @media (min-width: 900px) {
-      #app {
-        flex-direction: row;
-      }
-
-      #map {
-        width: 100%;
-        height: 100vh;
-        border-bottom: none;
-      }
-
-      #sidebar {
-        width: 320px;
-        height: 100vh;
-        box-shadow: 2px 0 6px rgba(0,0,0,0.05);
-        border-right: 1px solid #eee;
-      }
+      font-size: 11px;
     }
   </style>
 </head>
 <body>
-  <div id="app">
-    <div id="map"></div>
+  <div id="map"></div>
 
-    <div id="sidebar">
-      <h2>Arremate Certo</h2>
-      <p>Imóveis de leilão da Caixa em mapa (demo).</p>
-
-      <label for="ufSelect">Estado (UF)</label>
-      <div style="display:flex; gap:8px; align-items:center; margin-bottom:4px;">
-        <select id="ufSelect">
-          <option value="SP">SP</option>
-          <option value="RJ">RJ</option>
-          <option value="MG">MG</option>
-          <option value="PR">PR</option>
-          <option value="RS">RS</option>
-        </select>
-        <button id="btnBuscar">Buscar imóveis</button>
-      </div>
-
-      <p id="status"></p>
-      <div id="selectedImovel"></div>
+  <div id="controls">
+    <h2>Arremate Certo – v0.3</h2>
+    <p>Toque em “Buscar imóveis” para ver os pins no mapa.</p>
+    <div>
+      <label for="ufSelect">UF:</label>
+      <select id="ufSelect">
+        <option value="SP">SP</option>
+        <option value="RJ">RJ</option>
+        <option value="MG">MG</option>
+        <option value="PR">PR</option>
+        <option value="RS">RS</option>
+      </select>
+      <button id="btnBuscar">Buscar imóveis</button>
     </div>
+    <div id="status"></div>
   </div>
 
   <!-- Leaflet JS -->
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    crossorigin=""
-  ></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 
   <script>
-    // >>>>>>> TROQUE AQUI PELA SUA URL DO BACKEND NO RENDER <<<<<<<
-    // exemplo: const BACKEND_URL = 'https://arrematecerto.onrender.com';
-    const BACKEND_URL = 'https://arrematecerto.onrender.com/';
+    // Backend FIXO do Arremate Certo
+    const BACKEND_URL = 'https://arrematecerto.onrender.com';
 
     const ufSelect = document.getElementById('ufSelect');
     const btnBuscar = document.getElementById('btnBuscar');
     const statusEl = document.getElementById('status');
-    const selectedImovelEl = document.getElementById('selectedImovel');
 
-    // cria mapa
+    // cria o mapa centrado em SP
     const map = L.map('map').setView([-23.55, -46.63], 11);
-
-    // camada do mapa
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap'
@@ -180,49 +109,39 @@
     async function buscarImoveis() {
       const uf = ufSelect.value;
       statusEl.textContent = 'Carregando imóveis...';
-      selectedImovelEl.innerHTML = '';
 
       try {
         const resp = await fetch(`${BACKEND_URL}/api/imoveis?uf=${encodeURIComponent(uf)}`);
         if (!resp.ok) {
-          throw new Error('Erro HTTP ' + resp.status);
+          throw new Error('HTTP ' + resp.status);
         }
         const imoveis = await resp.json();
-
         statusEl.textContent = `Encontrados: ${imoveis.length} imóveis`;
 
         markersLayer.clearLayers();
-
-        if (!imoveis.length) {
-          return;
-        }
+        if (!imoveis.length) return;
 
         const bounds = [];
 
-        imoveis.forEach(imovel => {
-          const lat = imovel.lat ?? -23.55;
-          const lng = imovel.lng ?? -46.63;
+        imoveis.forEach(i => {
+          const lat = i.lat ?? -23.55;
+          const lng = i.lng ?? -46.63;
 
           const marker = L.marker([lat, lng]).addTo(markersLayer);
           bounds.push([lat, lng]);
 
           const popupHtml = `
-            <b>${imovel.tipo || 'Imóvel'}</b><br/>
-            ${imovel.logradouro || ''}<br/>
-            ${imovel.bairro || ''} - ${imovel.cidade || ''}/${imovel.uf || ''}<br/>
-            Modalidade: ${imovel.modalidade || ''}<br/>
-            Valor: R$ ${imovel.valor?.toLocaleString('pt-BR') || ''}<br/>
-            Área: ${imovel.area || ''} m²
+            <b>${i.tipo || 'Imóvel'}</b><br/>
+            ${i.logradouro || ''}<br/>
+            ${i.bairro || ''} - ${i.cidade || ''}/${i.uf || ''}<br/>
+            Modalidade: ${i.modalidade || ''}<br/>
+            Valor: R$ ${i.valor?.toLocaleString('pt-BR') || ''}<br/>
+            Área: ${i.area || ''} m²
           `;
-
           marker.bindPopup(popupHtml);
-
-          marker.on('click', () => {
-            mostrarImovel(imovel);
-          });
         });
 
-        if (bounds.length > 0) {
+        if (bounds.length) {
           map.fitBounds(bounds, { padding: [40, 40] });
         }
       } catch (e) {
@@ -231,22 +150,7 @@
       }
     }
 
-    function mostrarImovel(imovel) {
-      selectedImovelEl.innerHTML = `
-        <h3>Imóvel selecionado</h3>
-        <p><strong>Cidade:</strong> ${imovel.cidade || ''}</p>
-        <p><strong>Bairro:</strong> ${imovel.bairro || ''}</p>
-        <p><strong>Tipo:</strong> ${imovel.tipo || ''}</p>
-        <p><strong>Modalidade:</strong> ${imovel.modalidade || ''}</p>
-        <p><strong>Valor:</strong> R$ ${imovel.valor?.toLocaleString('pt-BR') || ''}</p>
-        <p><strong>Área:</strong> ${imovel.area || ''} m²</p>
-      `;
-    }
-
     btnBuscar.addEventListener('click', buscarImoveis);
-
-    // já busca SP ao carregar
-    buscarImoveis();
   </script>
 </body>
 </html>
