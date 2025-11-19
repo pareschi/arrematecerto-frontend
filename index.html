@@ -12,9 +12,7 @@
   />
 
   <style>
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     html, body {
       margin: 0;
@@ -25,14 +23,14 @@
       color: #0f172a;
     }
 
-    /* MAPA ocupa todo o fundo */
+    /* Mapa ocupa o fundo inteiro */
     #map {
       position: fixed;
       inset: 0;
       z-index: 1;
     }
 
-    /* Top bar estilo app */
+    /* Top bar */
     #topbar {
       position: fixed;
       z-index: 10;
@@ -53,6 +51,7 @@
       justify-content: space-between;
       align-items: center;
       gap: 8px;
+      flex-wrap: wrap;
     }
 
     #title-row h1 {
@@ -65,46 +64,29 @@
       opacity: 0.8;
     }
 
-    #filters-row {
+    #controls-row {
       display: flex;
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
     }
 
-    #filters-row label {
+    #controls-row label {
       font-size: 12px;
       opacity: 0.9;
     }
 
-    #filters-row select,
-    #filters-row button {
-      padding: 6px 10px;
-      font-size: 13px;
-      border-radius: 999px;
-      border: 1px solid rgba(148,163,184,0.7);
-      background: rgba(15,23,42,0.9);
-      color: #e5e7eb;
-    }
-
-    #filters-row button {
-      background: #22c55e;
-      border-color: #16a34a;
-      color: #022c22;
-      font-weight: 600;
-      cursor: pointer;
-    }
-
-    #filters-row button:active {
-      transform: scale(0.97);
+    #fileInput {
+      font-size: 12px;
+      max-width: 260px;
     }
 
     #status {
       font-size: 11px;
-      opacity: 0.85;
+      opacity: 0.9;
     }
 
-    /* Bottom sheet com info do imóvel */
+    /* Bottom sheet */
     #sheet {
       position: fixed;
       z-index: 10;
@@ -154,15 +136,8 @@
       color: #0369a1;
     }
 
-    .tag.green {
-      background: #dcfce7;
-      color: #166534;
-    }
-
-    .tag.orange {
-      background: #fef3c7;
-      color: #92400e;
-    }
+    .tag.green { background: #dcfce7; color: #166534; }
+    .tag.orange { background: #fef3c7; color: #92400e; }
 
     @media (min-width: 900px) {
       #sheet {
@@ -172,9 +147,7 @@
         width: 360px;
         border-radius: 16px;
       }
-      #sheet-handle {
-        display: none;
-      }
+      #sheet-handle { display: none; }
     }
   </style>
 </head>
@@ -185,127 +158,133 @@
     <div id="title-row">
       <div>
         <h1>Arremate Certo</h1>
-        <span>Mapa de oportunidades em imóveis de leilão da Caixa (demo)</span>
+        <span>Envie o CSV da Caixa e visualize os imóveis no mapa, com análise de IA.</span>
       </div>
     </div>
 
-    <div id="filters-row">
-      <label for="ufSelect">UF</label>
-      <select id="ufSelect">
-        <option value="SP" selected>SP</option>
-        <option value="RJ">RJ</option>
-        <option value="MG">MG</option>
-        <option value="PR">PR</option>
-        <option value="RS">RS</option>
-      </select>
-
-      <button id="btnBuscar">Buscar imóveis</button>
+    <div id="controls-row">
+      <label for="fileInput">CSV da Caixa (.csv)</label>
+      <input type="file" id="fileInput" accept=".csv" />
       <span id="status"></span>
     </div>
   </header>
 
   <section id="sheet">
     <div id="sheet-handle"></div>
-    <h2>Navegue pelo mapa</h2>
-    <p>Use zoom e arraste o mapa. Toque em um pin para ver os detalhes do imóvel aqui.</p>
+    <h2>Importe um CSV da Caixa</h2>
+    <p>No site da Caixa, escolha o estado, baixe a lista de imóveis em CSV e selecione o arquivo aqui.</p>
+    <p style="margin-top:6px;">Depois clique em um pin no mapa para ver os detalhes e rodar a análise de viabilidade com IA.</p>
   </section>
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <!-- PapaParse para ler CSV no navegador -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script>
-    // Backend fixo do Arremate Certo
+    // Backend fixo (somente para IA)
     const BACKEND_URL = 'https://arrematecerto.onrender.com';
 
-    const ufSelect = document.getElementById('ufSelect');
-    const btnBuscar = document.getElementById('btnBuscar');
-    const statusEl = document.getElementById('status');
-    const sheetEl = document.getElementById('sheet');
+    const fileInput = document.getElementById('fileInput');
+    const statusEl  = document.getElementById('status');
+    const sheetEl   = document.getElementById('sheet');
 
-    // cria mapa centrado em SP
-    const map = L.map('map').setView([-23.55, -46.63], 11);
+    // Mapa
+    const map = L.map('map').setView([-14.235, -51.9253], 4); // Brasil
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap'
     }).addTo(map);
 
     let markersLayer = L.layerGroup().addTo(map);
+    let imoveis = [];
+    let imovelSelecionado = null;
+    let analiseAtual = null;
 
-    function preencherSheetInicial() {
-      sheetEl.innerHTML = `
-        <div id="sheet-handle"></div>
-        <h2>Navegue pelo mapa</h2>
-        <p>Toque em “Buscar imóveis” e depois clique em um pin para ver os detalhes aqui.</p>
-        <p style="margin-top:6px;">Versão demo utilizando dados mockados do backend.</p>
-      `;
+    // Coordenadas aproximadas por cidade/UF para não ficar tudo no centro
+    const cityCoords = {
+      'sao paulo|SP': [-23.55, -46.63],
+      'santos|SP': [-23.9632, -46.3322],
+      'guarujá|SP': [-23.9925, -46.2569],
+      'guaruja|SP': [-23.9925, -46.2569],
+      'rio de janeiro|RJ': [-22.9068, -43.1729],
+      'belo horizonte|MG': [-19.9167, -43.9345],
+      'curitiba|PR': [-25.4284, -49.2733],
+      'porto alegre|RS': [-30.0346, -51.2177],
+      'salvador|BA': [-12.9777, -38.5016],
+      'fortaleza|CE': [-3.7319, -38.5267],
+      'recife|PE': [-8.0476, -34.8770],
+      'manaus|AM': [-3.1190, -60.0217],
+      'goiania|GO': [-16.6864, -49.2643],
+      'brasilia|DF': [-15.8267, -47.9218]
+    };
+
+    function guessCoords(uf, cidade) {
+      const key = `${(cidade || '').toLowerCase().trim()}|${(uf || '').toUpperCase().trim()}`;
+      if (cityCoords[key]) return cityCoords[key];
+      // fallback: centro aproximado do Brasil
+      return [-14.235, -51.9253];
     }
 
-    function preencherSheetImovel(i) {
-      const modalidade = i.modalidade || 'Modalidade não informada';
-      const situacao = i.situacao || 'Situação não informada';
-
-      sheetEl.innerHTML = `
-        <div id="sheet-handle"></div>
-        <h2>${i.tipo || 'Imóvel de leilão'}</h2>
-        <div class="tag-row">
-          <span class="tag green">${modalidade}</span>
-          <span class="tag orange">${situacao}</span>
-        </div>
-        <p><strong>Localização:</strong> ${i.logradouro || ''}${i.logradouro ? ', ' : ''}${i.bairro || ''} – ${i.cidade || ''}/${i.uf || ''}</p>
-        <p><strong>Valor:</strong> ${i.valor ? 'R$ ' + i.valor.toLocaleString('pt-BR') : 'Não informado'}</p>
-        <p><strong>Área:</strong> ${i.area ? i.area + ' m²' : 'Não informada'}</p>
-      `;
+    function parseNumeroBr(valorStr) {
+      if (!valorStr) return 0;
+      let s = String(valorStr).trim();
+      s = s.replace(/[R$\s]/g, '');
+      s = s.replace(/\./g, '').replace(',', '.');
+      const n = Number(s);
+      return Number.isNaN(n) ? 0 : n;
     }
 
-    async function buscarImoveis() {
-      const uf = ufSelect.value;
-      statusEl.textContent = 'Carregando...';
+    function normalizarImovel(row, idx) {
+      const uf =
+        row['UF'] ||
+        row['Uf'] ||
+        row['uf'] ||
+        '';
 
-      try {
-        const resp = await fetch(`${BACKEND_URL}/api/imoveis?uf=${encodeURIComponent(uf)}`);
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const cidade =
+        row['MUNICIPIO'] ||
+        row['Município'] ||
+        row['MUNICÍPIO'] ||
+        row['CIDADE'] ||
+        row['Cidade'] ||
+        '';
 
-        const imoveis = await resp.json();
-        statusEl.textContent = `Encontrados: ${imoveis.length} imóvel(is)`;
+      const bairro =
+        row['BAIRRO'] ||
+        row['Bairro'] ||
+        '';
 
-        markersLayer.clearLayers();
-        preencherSheetInicial();
+      const logradouro =
+        row['ENDERECO'] ||
+        row['Endereço'] ||
+        row['LOGRADOURO'] ||
+        row['Logradouro'] ||
+        '';
 
-        if (!imoveis.length) return;
+      const modalidade =
+        row['MODALIDADE'] ||
+        row['Modalidade'] ||
+        '';
 
-        const bounds = [];
+      const tipo =
+        row['TIPO_IMOVEL'] ||
+        row['Tipo de Imóvel'] ||
+        row['TIPO'] ||
+        '';
 
-        imoveis.forEach(i => {
-          const lat = i.lat ?? -23.55;
-          const lng = i.lng ?? -46.63;
+      const situacao =
+        row['SITUACAO'] ||
+        row['Situação'] ||
+        '';
 
-          const marker = L.marker([lat, lng]).addTo(markersLayer);
-          bounds.push([lat, lng]);
+      const valorStr =
+        row['VALOR'] ||
+        row['Valor'] ||
+        row['VALOR_AVALIACAO'] ||
+        row['Valor de Avaliação'] ||
+        '';
 
-          const popupHtml = `
-            <b>${i.tipo || 'Imóvel'}</b><br/>
-            ${i.cidade || ''}/${i.uf || ''}
-          `;
-          marker.bindPopup(popupHtml);
-
-          marker.on('click', () => {
-            preencherSheetImovel(i);
-          });
-        });
-
-        if (bounds.length) {
-          map.fitBounds(bounds, { padding: [40, 80] });
-        }
-      } catch (e) {
-        console.error(e);
-        statusEl.textContent = 'Erro ao carregar imóveis';
-      }
-    }
-
-    btnBuscar.addEventListener('click', buscarImoveis);
-
-    // estado inicial: texto no sheet
-    preencherSheetInicial();
-  </script>
-</body>
-</html>
+      const areaStr =
+        row['AREA_TOTAL'] ||
+        row
