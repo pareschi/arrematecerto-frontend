@@ -287,4 +287,203 @@
 
       const areaStr =
         row['AREA_TOTAL'] ||
-        row
+        row['Área Total'] ||
+        row['AREA'] ||
+        '';
+
+      const valor = parseNumeroBr(valorStr);
+      const area  = parseNumeroBr(areaStr);
+
+      const [lat, lng] = guessCoords(uf, cidade);
+
+      return {
+        id: idx,
+        bruto: row,
+        uf,
+        cidade,
+        bairro,
+        logradouro,
+        modalidade,
+        tipo,
+        situacao,
+        valor,
+        area,
+        lat,
+        lng
+      };
+    }
+
+    function preencherSheetInicial() {
+      sheetEl.innerHTML = `
+        <div id="sheet-handle"></div>
+        <h2>Importe um CSV da Caixa</h2>
+        <p>No site da Caixa, selecione o estado, baixe o CSV e depois escolha o arquivo aqui em cima.</p>
+        <p style="margin-top:6px;">Os imóveis serão plotados no mapa. Toque em um pin para ver os detalhes e rodar uma análise de viabilidade com IA.</p>
+      `;
+    }
+
+    function preencherSheetImovel(i) {
+      imovelSelecionado = i;
+      analiseAtual = null;
+
+      const modalidade = i.modalidade || 'Modalidade não informada';
+      const situacao   = i.situacao   || 'Situação não informada';
+
+      sheetEl.innerHTML = `
+        <div id="sheet-handle"></div>
+        <h2>${i.tipo || 'Imóvel de leilão'}</h2>
+        <div class="tag-row">
+          <span class="tag green">${modalidade}</span>
+          <span class="tag orange">${situacao}</span>
+        </div>
+        <p><strong>Localização:</strong> ${i.logradouro || ''}${i.logradouro ? ', ' : ''}${i.bairro || ''} – ${i.cidade || ''}/${i.uf || ''}</p>
+        <p><strong>Valor:</strong> ${i.valor ? 'R$ ' + i.valor.toLocaleString('pt-BR') : 'Não informado'}</p>
+        <p><strong>Área:</strong> ${i.area ? i.area + ' m²' : 'Não informada'}</p>
+
+        <button id="btnAnaliseIA" style="
+          margin-top:8px;
+          padding:6px 10px;
+          border-radius:999px;
+          border:1px solid #0f766e;
+          background:#14b8a6;
+          color:#022c22;
+          font-size:12px;
+          font-weight:600;
+          cursor:pointer;
+        ">
+          Analisar viabilidade com IA
+        </button>
+
+        <div id="analiseIA" style="margin-top:8px; font-size:12px;"></div>
+      `;
+
+      const btnAnalise = document.getElementById('btnAnaliseIA');
+      const analiseDiv = document.getElementById('analiseIA');
+
+      btnAnalise.addEventListener('click', async () => {
+        if (!imovelSelecionado) return;
+
+        analiseDiv.textContent = 'Analisando viabilidade...';
+
+        try {
+          const resp = await fetch(`${BACKEND_URL}/api/imoveis/analise`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(imovelSelecionado)
+          });
+
+          if (!resp.ok) {
+            analiseDiv.textContent = `Erro na análise (HTTP ${resp.status})`;
+            return;
+          }
+
+          const data = await resp.json();
+          analiseAtual = data;
+
+          analiseDiv.innerHTML = `
+            <p><strong>Score de viabilidade:</strong> ${data.score ?? '?'} / 100</p>
+            <p><strong>Resumo:</strong> ${data.resumo || ''}</p>
+            ${
+              Array.isArray(data.pontos_positivos)
+                ? '<p><strong>Pontos positivos:</strong></p><ul>' +
+                  data.pontos_positivos.map(p => `<li>${p}</li>`).join('') +
+                  '</ul>'
+                : ''
+            }
+            ${
+              Array.isArray(data.pontos_atencao)
+                ? '<p><strong>Pontos de atenção:</strong></p><ul>' +
+                  data.pontos_atencao.map(p => `<li>${p}</li>`).join('') +
+                  '</ul>'
+                : ''
+            }
+            <p><strong>Estratégia sugerida:</strong> ${data.estrategia || ''}</p>
+          `;
+        } catch (e) {
+          console.error(e);
+          analiseDiv.textContent = 'Erro ao gerar análise de IA.';
+        }
+      });
+    }
+
+    function plotarImoveisNoMapa() {
+      markersLayer.clearLayers();
+
+      if (!imoveis.length) {
+        preencherSheetInicial();
+        statusEl.textContent = 'Nenhum imóvel carregado.';
+        return;
+      }
+
+      const bounds = [];
+
+      imoveis.forEach(i => {
+        const lat = i.lat ?? -14.235;
+        const lng = i.lng ?? -51.9253;
+
+        const marker = L.marker([lat, lng]).addTo(markersLayer);
+        bounds.push([lat, lng]);
+
+        const popupHtml = `
+          <b>${i.tipo || 'Imóvel'}</b><br/>
+          ${i.cidade || ''}/${i.uf || ''}
+        `;
+        marker.bindPopup(popupHtml);
+
+        marker.on('click', () => {
+          preencherSheetImovel(i);
+        });
+      });
+
+      if (bounds.length) {
+        map.fitBounds(bounds, { padding: [40, 80] });
+      }
+
+      preencherSheetInicial();
+    }
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      statusEl.textContent = 'Lendo CSV...';
+
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        delimiter: ';',
+        complete: function(results) {
+          try {
+            const rows = results.data;
+            let lista = rows.map((row, idx) => normalizarImovel(row, idx));
+
+            const total = lista.length;
+            const LIMITE = 400;
+            if (lista.length > LIMITE) {
+              lista = lista.slice(0, LIMITE);
+              statusEl.textContent = `CSV carregado (${total} imóveis). Mostrando primeiros ${LIMITE} no mapa.`;
+            } else {
+              statusEl.textContent = `CSV carregado (${total} imóveis).`;
+            }
+
+            imoveis = lista;
+            plotarImoveisNoMapa();
+          } catch (e) {
+            console.error(e);
+            statusEl.textContent = 'Erro ao processar o CSV.';
+            preencherSheetInicial();
+          }
+        },
+        error: function(err) {
+          console.error(err);
+          statusEl.textContent = 'Erro ao ler o arquivo CSV.';
+          preencherSheetInicial();
+        }
+      });
+    });
+
+    // estado inicial
+    preencherSheetInicial();
+  </script>
+</body>
+</html>
